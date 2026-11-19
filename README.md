@@ -5,6 +5,37 @@
 
 **Сейчас работает только интерфейс с демо-данными.**
 
+## Подготовка окружения
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Запуск пайплайна
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+docker compose -f app/pipeline/deploy/docker-compose.yml up -d
+```
+
+Compose поднимает Postgres и OSRM. Приложение само OSRM не запускает: `python -m rag route` ходит на `OSRM_BASE_URL`, по умолчанию `http://127.0.0.1:5000`. Сервис `osrm` слушает этот порт. Профили `car` и `foot` — два графа внутри compose, nginx раскладывает `/v1/car/` и `/v1/foot/` по ним. Первый запуск скачивает выгрузку Ивановской области и строит графы, это несколько минут.
+
+Четыре команды:
+
+python -m rag report
+python -m rag rebuild
+python -m rag route --query "Хочу поесть и зайти в торговый центр в Иваново"
+python -m rag archive
+report только фильтрует JSON и печатает статистику. База и нейросеть не вызываются, но переменные в .env всё равно должны существовать. Результат пишется в artifacts/runs/category_report.json.
+
+rebuild заново создаёт векторную таблицу: проверяет размерность эмбеддинга, включает расширение vector, стирает старую таблицу и заливает места пачками по BATCH_SIZE (8). Это платный вызов API эмбеддингов на каждое оставшееся место. Потом строится HNSW-индекс и проверка: число строк равно числу разных org_id, размерность 1024, нет пустых координат и категорий, в metadata нет текстов отзывов.
+
+route строит маршрут. Город можно переопределить: --city Иваново. Ответ печатается и сохраняется в artifacts/runs/route.json. Тот же сценарий есть в cycle_to_determine_POI.ipynb: там тоже нужно сначала сделать rebuild.
+
+archive упаковывает проект в artifacts/archive/ivanovo_rag_<дата>.zip и пишет artifacts/runs/manifest.json. Перед этим проверяет, что route.json валиден, и что строка вида sk-... не попала ни в один файл, кроме .env.
+
+
 ## Запуск
 
 Нужен Node.js 20.19+ или 22.12+.
