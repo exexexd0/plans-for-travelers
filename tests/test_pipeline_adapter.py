@@ -1,36 +1,56 @@
-"""Однодневная цепочка с настоящим BM25 и тестовыми HTTP-ответами LLM/OSRM."""
-
-import json
 from datetime import date
+from pathlib import Path
 
 import httpx
 import pytest
 
 from app.backend.api.schemas import TripRequest
-from app.backend.domain.models import Place, SearchDocument
-from app.backend.infrastructure.llm.client import LlmSelector
+from app.backend.infrastructure.corpus.loader import load_places
 from app.backend.main import create_app
 from app.backend.pipeline_adapter import PipelineTripGenerator, decode_polyline
-from app.pipeline.rag.routing import OsrmRouter
+from app.pipeline.rag.models import CategoryOrder, RoutePlan
+from app.pipeline.rag.planner import PlannerTimeout
 
 
-def documents():
-    rows = [
-        ("D01", "p1", "музей", 43.252, -126.453),
-        ("D02", "p2", "кофе", 40.7, -120.95),
-        ("D03", "p3", "парк", 38.5, -120.2),
-        ("D04", "p4", "театр", 57, 41),
-    ]
-    return [SearchDocument(id=doc, name=word, city="Иваново", text=word,
-                          category=word, places=(Place(
-                              id=id, name=word, city="Иваново", text=word,
-                              lat=lat, lon=lon, address="Адрес " + id, category=word),))
-            for doc, id, word, lat, lon in rows]
+CORPUS = Path(__file__).resolve().parents[1] / "app/backend/data/ivanovo"
 
 
 def request_data():
-    return {"city": "Иваново", "interests": ["food"], "days": 1,
-            "start": date.today().isoformat(), "prompt": "музей кофе парк"}
+    return {"city": "Иваново", "interests": ["food", "buildings"], "days": 1,
+            "start": date.today().isoformat(), "prompt": "Сначала здания, потом еда"}
+
+
+class Planner:
+    async def plan(self, user_query, city, available_categories):
+        assert "Красивые здания" in user_query
+        return RoutePlan(route_title="Прогулка", required_points=["food", "sight"],
+                         precedence=[CategoryOrder(before="sight", after="food")])
+
+
+class Selector:
+    def __init__(self):
+        self.calls = []
+
+    async def choose(self, *, category, candidates, route_so_far, **kwargs):
+        self.calls.append((category, candidates, list(route_so_far)))
+        return (candidates[0], candidates[1] if len(candidates) > 1 else None, "test") if candidates else (None, None, "empty")
+
+
+class Router:
+    def __init__(self):
+        self.routed = []
+
+    async def table(self, places, profile):
+        assert profile == "foot"
+        n = len(places)
+        matrix = [[0 if i == j else 100 for j in range(n)] for i in range(n)]
+        return matrix, matrix
+
+    async def route(self, places, profile):
+        from types import SimpleNamespace
+        self.routed = places
+        return SimpleNamespace(geometry='_p~iF~ps|U_ulLnnqC_mqNvxq`@', distance=100,
+                               duration=10, legs=[SimpleNamespace(duration=10, distance=100)] * (len(places)-1))
 
 
 def test_decode_osrm_polyline_in_geojson_order():
@@ -42,92 +62,81 @@ def test_decode_osrm_polyline_in_geojson_order():
 
 
 @pytest.mark.asyncio
-async def test_api_bm25_llm_osrm_use_only_three_documents_and_source_coordinates():
-    calls = []
-
-    def respond(request):
-        calls.append(request)
-        if request.url.host == "llm.test":
-            payload = json.loads(request.content)
-            context = json.loads(payload["messages"][1]["content"])
-            assert {d["id"] for d in context["documents"]} == {"D01", "D02", "D03"}
-            assert "музей кофе парк" in context["query"]
-            assert context["date"] == date.today().isoformat()
-            return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
-                "title": "Парк и музей", "place_ids": ["p3", "p1"], "insufficient_places": True,
-            })}}]})
-        assert request.url.host == "osrm.test"
-        assert request.url.path == "/route/v1/foot/-120.2,38.5;-126.453,43.252"
-        return httpx.Response(200, json={"code": "Ok", "routes": [{
-            "distance": 100, "duration": 10,
-            "geometry": '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
-            "legs": [{"duration": 10, "distance": 100}],
-        }]})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as external:
-        generator = PipelineTripGenerator(documents(),
-            LlmSelector("test-key", "https://llm.test", "test-model", external),
-            OsrmRouter("https://osrm.test", external))
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(generator)),
-                                     base_url="http://test") as api:
-            response = await api.post("/api/v1/trips/generate", json=request_data())
-    assert response.status_code == 200
-    trip = response.json()
-    assert len(trip["days"]) == 1
-    day = trip["days"][0]
-    assert [p["id"] for p in day["stops"]] == ["p3", "p1"]
-    assert day["stops"][0]["latitude"] == 38.5
-    assert day["stops"][0]["name"] == "парк"
-    assert day["stops"][0]["address"] == "Адрес p3"
-    assert "Тестовый режим, мест пока не много" in day["summary"]
-    assert day["route"]["geometry"]["coordinates"][0] == [-120.2, 38.5]
-    assert len(calls) == 2
+async def test_bm25_per_goal_selects_found_places_and_respects_order():
+    selector, router = Selector(), Router()
+    generator = PipelineTripGenerator(load_places(CORPUS), Planner(), selector, router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(generator)), base_url="http://test") as api:
+        response = await api.post("/api/v1/trips/generate", json=request_data())
+    assert response.status_code == 200, response.text
+    assert [call[0] for call in selector.calls] == ["food", "sight"]
+    assert all(call[1] for call in selector.calls)
+    assert selector.calls[1][2][0]["primary"]["org_id"] == selector.calls[0][1][0]["org_id"]
+    assert all(candidate["document_id"] and candidate["text"] for _, candidates, _ in selector.calls for candidate in candidates)
+    assert [p["category"] for p in router.routed] == ["sight", "food"]
+    stops = response.json()["days"][0]["stops"]
+    assert [p["id"] for p in stops] == [p["org_id"] for p in router.routed]
+    assert all(p["description"] for p in stops)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ids", [["p4"], ["p1", "p1"]])
-async def test_rejects_ids_outside_retrieved_documents_and_duplicates(ids):
-    def respond(request):
-        assert request.url.host == "llm.test", "OSRM must not receive invalid places"
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
-            "title": "Маршрут", "place_ids": ids,
-        })}}]})
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as external:
-        generator = PipelineTripGenerator(documents(),
-            LlmSelector("key", "https://llm.test", "model", external),
-            OsrmRouter("https://osrm.test", external))
-        with pytest.raises(ValueError):
-            await generator.generate(TripRequest(**request_data()))
+async def test_empty_goal_reports_missing_without_replacing_it():
+    class MissingPlanner:
+        async def plan(self, user_query, city, available_categories):
+            return RoutePlan(route_title="Прогулка", required_points=["food", "station"])
+    selector = Selector()
+    generator = PipelineTripGenerator(load_places(CORPUS), MissingPlanner(), selector, Router())
+    trip = await generator.generate(TripRequest(**{**request_data(), "interests": ["food"]}))
+    assert selector.calls[1][0] == "station" and not selector.calls[1][1]
+    assert len(trip.days[0].stops) == 1
+    assert "Тестовый режим, мест пока не много" in trip.description
 
 
 @pytest.mark.asyncio
-async def test_unknown_city_is_rejected_before_external_calls():
-    def unexpected(request):
-        pytest.fail("External calls are not allowed for an unknown city")
-    async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected)) as external:
-        generator = PipelineTripGenerator(documents(),
-            LlmSelector("key", "https://llm.test", "model", external),
-            OsrmRouter("https://osrm.test", external))
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(generator)),
-                                     base_url="http://test") as api:
-            response = await api.post("/api/v1/trips/generate", json={**request_data(), "city": "Москва"})
-    assert response.status_code == 422
+async def test_rejects_selector_id_outside_bm25_candidates():
+    class BadSelector:
+        async def choose(self, **kwargs):
+            return {"org_id": "not-in-corpus"}, None, "test"
+    generator = PipelineTripGenerator(load_places(CORPUS), Planner(), BadSelector(), Router())
+    with pytest.raises(ValueError, match="вне результатов BM25"):
+        await generator.generate(TripRequest(**request_data()))
 
 
 @pytest.mark.asyncio
-async def test_single_place_needs_no_osrm_and_missing_key_returns_503():
-    def respond(request):
-        assert request.url.host == "llm.test"
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
-            "title": "Музей", "place_ids": ["p1"],
-        })}}]})
-    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as external:
-        generator = PipelineTripGenerator(documents(),
-            LlmSelector("key", "https://llm.test", "model", external),
-            OsrmRouter("https://osrm.test", external))
-        trip = await generator.generate(TripRequest(**request_data()))
-        assert trip.days[0].route is None
-        generator.selector.api_key = ""
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(generator)),
-                                     base_url="http://test") as api:
-            assert (await api.post("/api/v1/trips/generate", json=request_data())).status_code == 503
+async def test_unknown_city_and_planner_timeout():
+    generator = PipelineTripGenerator(load_places(CORPUS), Planner(), Selector(), Router())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(generator)), base_url="http://test") as api:
+        response = await api.post("/api/v1/trips/generate", json={**request_data(), "city": "Москва"})
+        assert response.status_code == 422
+        class TimedOutPlanner:
+            async def plan(self, *args):
+                raise PlannerTimeout("timeout")
+        generator.planner = TimedOutPlanner()
+        assert (await api.post("/api/v1/trips/generate", json=request_data())).status_code == 503
+
+@pytest.mark.asyncio
+async def test_explicit_food_and_buildings_are_not_lost_when_planner_omits_one():
+    class OmittingPlanner:
+        async def plan(self, user_query, city, available_categories):
+            return RoutePlan(route_title="Прогулка", required_points=["food"])
+    selector, router = Selector(), Router()
+    trip = await PipelineTripGenerator(load_places(CORPUS), OmittingPlanner(), selector, router).generate(
+        TripRequest(**request_data()))
+    assert [call[0] for call in selector.calls] == ["food", "sight"]
+    assert len(trip.days[0].stops) == 2
+
+@pytest.mark.asyncio
+async def test_bm25_candidates_account_for_user_wishes():
+    from app.backend.bm25_route_retriever import BM25RouteRetriever
+    from app.backend.domain.models import Place, SearchDocument
+    from app.backend.infrastructure.search.bm25 import BM25Search
+
+    places = [
+        Place(id="a", name="Кафе А", city="Иваново", text="кафе пироги", category="Кафе", lat=57, lon=40),
+        Place(id="b", name="Кафе Б", city="Иваново", text="кафе суп", category="Кафе", lat=57, lon=40),
+    ]
+    docs = [SearchDocument(id=f"D{i}", name=place.name, city=place.city, text=place.text,
+                           category=place.category, places=(place,)) for i, place in enumerate(places)]
+    retriever = BM25RouteRetriever(docs, BM25Search(docs))
+    candidates = await retriever.search(user_query="хочу суп", city="Иваново", category="food", excluded_org_ids=[])
+    assert candidates[0]["org_id"] == "b"
+    assert candidates[0]["document_id"] == "D1"

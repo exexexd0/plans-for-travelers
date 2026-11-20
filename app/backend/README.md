@@ -45,5 +45,5 @@ python -m app.backend.infrastructure.search --corpus app/backend/data/ivanovo --
 Он использует тот же BM25 без сервера и LLM; отчёт — в `benchmark/results/search.md`.
 Метрики поиска не заменяют проверку ответов модели.
 
-`pipeline_adapter.py` соединяет BM25, LlmSelector и OSRM.
+`pipeline_adapter.py` соединяет поэтапный маршрутный граф, BM25, JEV и OSRM.
 Для API нужен корневой requirements.txt. Векторная база не используется.

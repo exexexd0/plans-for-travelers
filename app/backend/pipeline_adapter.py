@@ -1,6 +1,7 @@
 """Однодневный маршрут: собственный BM25 → выбор LLM → пеший OSRM."""
 
 import os
+from types import SimpleNamespace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,8 +10,12 @@ from fastapi import HTTPException
 from app.backend.domain.models import SearchDocument
 from app.backend.api.schemas import DayRoute, LineString, RouteDay, Stop, TripRequest, TripResponse
 from app.backend.infrastructure.corpus.loader import load_places
-from app.backend.infrastructure.llm.client import LlmSelector
+from app.backend.bm25_route_retriever import BM25RouteRetriever
 from app.backend.infrastructure.search.bm25 import BM25Search
+from app.pipeline.rag.categories import CANONICAL_CATEGORIES, CATEGORY_LABELS
+from app.pipeline.rag.graph import build_route_graph, initial_state, route_view, validate_route
+from app.pipeline.rag.jev import JevSelector
+from app.pipeline.rag.planner import LlmPlanner
 from app.pipeline.rag.routing import OsrmRouter
 
 INTEREST_LABELS = {
@@ -18,6 +23,11 @@ INTEREST_LABELS = {
     "nature": "Природа и парки", "buildings": "Красивые здания",
     "art": "Выставки и галереи", "active": "Активный отдых", "unusual": "Необычные места",
 }
+
+
+# Для явно выбранных интересов с однозначной категорией не полагаемся на то,
+# что планировщик обязательно их повторит. Остальные цели он определяет по запросу.
+REQUIRED_CATEGORIES = {"food": "food", "nature": "nature", "buildings": "sight", "art": "culture"}
 
 
 def pipeline_query(request: TripRequest) -> str:
@@ -54,42 +64,47 @@ def decode_polyline(encoded: str) -> list[tuple[float, float]]:
 
 
 class PipelineTripGenerator:
-    def __init__(self, documents: list[SearchDocument], selector: LlmSelector, router: OsrmRouter):
+    def __init__(self, documents: list[SearchDocument], planner, selector, router):
         self.index = BM25Search(documents, k1=1.2, b=0.75)
+        self.retriever = BM25RouteRetriever(documents, self.index)
+        self.planner = planner
         self.selector = selector
         self.router = router
-        self.cities = {p.city.strip().casefold() for p in documents}
+        self.cities = {document.city.strip().casefold() for document in documents}
 
     async def generate(self, request: TripRequest) -> TripResponse:
         if request.city.strip().casefold() not in self.cities:
             raise HTTPException(status_code=422, detail="Для выбранного города нет данных.")
-        query = pipeline_query(request)
-        hits = self.index.search(query, city=request.city, limit=3)
-        places = {p.id: p for hit in hits for p in hit.place.places
-                  if p.lat is not None and p.lon is not None}
-        if not places:
+        required = tuple(dict.fromkeys(REQUIRED_CATEGORIES[id] for id in request.interests
+                                       if id in REQUIRED_CATEGORIES))
+        graph = build_route_graph(self.planner, self.retriever, self.selector, router=self.router,
+                                  allow_ranked_fallback=False, required_categories=required)
+        state = await graph.ainvoke(initial_state(pipeline_query(request), request.city,
+                                                   list(CANONICAL_CATEGORIES)))
+        payload = route_view(state)
+        if payload.get("stopped_reason") == "no_candidates":
             raise HTTPException(status_code=422, detail="Подходящие места не найдены.")
-        selection = await self.selector.select(query, request.start, hits)
-        if len(selection.place_ids) != len(set(selection.place_ids)):
-            raise ValueError("LLM повторила место")
-        if any(id not in places for id in selection.place_ids):
-            raise ValueError("LLM выбрала неизвестное место")
-        chosen = [places[id] for id in selection.place_ids]
-        stops = [Stop(id=p.id, name=p.name, address=p.address, description=p.text,
-                      latitude=p.lat, longitude=p.lon) for p in chosen]
-        route = None
-        if len(chosen) > 1:
-            points = [{"org_id": p.id, "name": p.name, "lat": p.lat, "lon": p.lon,
-                       "category": p.category} for p in chosen]
-            routed = await self.router.route(points, "foot")
-            geometry = decode_polyline(routed.geometry)
-            if len(geometry) < 2:
-                raise RuntimeError("OSRM не вернул геометрию маршрута")
-            route = DayRoute(geometry=LineString(coordinates=geometry))
-        summary = "Места: " + ", ".join(p.name for p in chosen) + "."
-        if selection.insufficient_places:
-            summary += " Тестовый режим, мест пока не много"
-        day = RouteDay(date=request.start, title=selection.title, summary=summary,
+        validate_route(payload)
+        sources = {place["org_id"]: place for step in payload["steps"]
+                   for place in (step.get("primary"), step.get("backup"))
+                   if place and place.get("org_id")}
+        points = payload["waypoints"]
+        if not points or any(point["place_id"] not in sources for point in points):
+            raise ValueError("Маршрут содержит неизвестное место")
+        if len({point["place_id"] for point in points}) != len(points):
+            raise ValueError("В маршруте есть повторяющиеся места")
+        stops = [Stop(id=str(point["place_id"]), name=point["name"],
+                      address=sources[point["place_id"]].get("address"),
+                      description=sources[point["place_id"]].get("type"),
+                      latitude=point["lat"], longitude=point["lon"])
+                 for point in points]
+        geometry = decode_polyline(payload.get("route_geometry") or "")
+        route = DayRoute(geometry=LineString(coordinates=geometry)) if len(geometry) >= 2 else None
+        summary = "Места: " + ", ".join(stop.name for stop in stops) + "."
+        if payload.get("missing_categories"):
+            summary += " Тестовый режим, мест пока не много. Не удалось подобрать: " + ", ".join(
+                CATEGORY_LABELS[category] for category in payload["missing_categories"]) + "."
+        day = RouteDay(date=request.start, title=payload["route_title"], summary=summary,
                        stops=stops, route=route)
         return TripResponse(city=request.city, description=summary, days=[day])
 
@@ -101,10 +116,20 @@ def create_pipeline_generator() -> PipelineTripGenerator:
     if not corpus.is_absolute():
         corpus = root / corpus
     documents = load_places(corpus)
-    selector = LlmSelector(
-        api_key=os.environ.get("ROUTERAI_API_KEY", ""),
-        base_url=os.environ.get("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1"),
-        model=os.environ.get("CHAT_MODEL", "openai/gpt-4o-mini"),
+    base_url = os.environ.get("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1").rstrip("/")
+    settings = SimpleNamespace(
+        routerai_api_key=os.environ.get("ROUTERAI_API_KEY", ""),
+        routerai_base_url=base_url,
+        chat_model=os.environ.get("CHAT_MODEL", "openai/gpt-4o-mini"),
+        jev_model=os.environ.get("JEV_MODEL", "~typesafe/jev-latest"),
+        decisions_url=base_url + "/decisions",
     )
-    return PipelineTripGenerator(documents, selector, OsrmRouter(
+    # Не создаём LLM-клиент без ключа: API отвечает 503 при запросе.
+    planner = LlmPlanner(settings) if settings.routerai_api_key else MissingPlanner()
+    return PipelineTripGenerator(documents, planner, JevSelector(settings), OsrmRouter(
         os.environ.get("OSRM_BASE_URL", "http://127.0.0.1:5000")))
+
+
+class MissingPlanner:
+    async def plan(self, user_query, city, available_categories):
+        raise RuntimeError("LLM не настроена: задайте ROUTERAI_API_KEY в .env")

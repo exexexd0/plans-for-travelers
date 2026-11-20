@@ -14,6 +14,9 @@ PUBLIC_FIELDS = (
     "name",
     "address",
     "type",
+    "text",
+    "source",
+    "document_id",
     "lat",
     "lon",
     "rating",
@@ -40,6 +43,7 @@ class RouteState(TypedDict):
     steps: list[dict]
     selection_source: str
     stopped_reason: str | None
+    missing_categories: list[str]
     route_id: str | None
     waypoints: list[dict]
     route_geometry: str
@@ -71,6 +75,7 @@ def initial_state(
         "steps": [],
         "selection_source": "",
         "stopped_reason": None,
+        "missing_categories": [],
         "route_id": None,
         "waypoints": [],
         "route_geometry": "",
@@ -80,7 +85,7 @@ def initial_state(
     }
 
 
-def build_route_graph(planner, retriever, selector, router=None):
+def build_route_graph(planner, retriever, selector, router=None, *, allow_ranked_fallback=True, required_categories=()):
     async def plan_route(state: RouteState) -> dict:
         try:
             plan = await planner.plan(
@@ -89,6 +94,8 @@ def build_route_graph(planner, retriever, selector, router=None):
                 state["available_categories"],
             )
         except PlannerTimeout:
+            if not allow_ranked_fallback:
+                raise
             logger.warning("LLM не ответила за 3.5 с, выбор по рейтингу")
             places = await retriever.top_by_rating(city=state["city"], limit=4)
             steps = _rule_steps(places)
@@ -106,7 +113,8 @@ def build_route_graph(planner, retriever, selector, router=None):
                 "selection_source": "rules",
                 "stopped_reason": None,
             }
-        points = limit_categories(plan.required_points, state["available_categories"])
+        points = limit_categories([*plan.required_points, *required_categories], state["available_categories"],
+                                  limit=4 + len(required_categories))
         if not points:
             raise ValueError("Не удалось составить категории маршрута")
         precedence, fixed_first, fixed_last = constraints_for(plan, points)
@@ -148,13 +156,24 @@ def build_route_graph(planner, retriever, selector, router=None):
             city=state["city"],
             category=state["required_points"][state["current_index"]],
             candidates=state["candidates"],
-            route_so_far=[],
+            route_so_far=state["steps"],
         )
+        candidates = {item["org_id"]: item for item in state["candidates"]}
+        for item in (primary, backup):
+            if item and item.get("org_id") not in candidates:
+                raise ValueError("Выбрано место вне результатов BM25")
+        if primary:
+            primary = {**candidates[primary["org_id"]], "confidence": primary.get("confidence")}
+        if backup:
+            backup = {**candidates[backup["org_id"]], "confidence": backup.get("confidence")}
+            if primary and backup["org_id"] == primary["org_id"]:
+                backup = None
         return {"primary": primary, "backup": backup, "selection_source": source}
 
     async def append_and_check(state: RouteState) -> dict:
         if not state["primary"]:
             return {
+                "missing_categories": [*state["missing_categories"], state["required_points"][state["current_index"]]],
                 "current_index": state["current_index"] + 1,
                 "candidates": [],
                 "primary": None,
@@ -181,8 +200,17 @@ def build_route_graph(planner, retriever, selector, router=None):
             return {"stopped_reason": "no_candidates"}
         if router is None:
             return {}
+        reserved_ids = {step["primary"]["org_id"] for step in state["steps"]}
+        steps = []
+        for step in state["steps"]:
+            backup = step.get("backup")
+            if backup and backup["org_id"] in reserved_ids:
+                backup = None
+            if backup:
+                reserved_ids.add(backup["org_id"])
+            steps.append(dict(step, backup=backup))
         built = await assemble_itinerary(
-            state["steps"],
+            steps,
             precedence=state["precedence"],
             fixed_first=state["fixed_first"],
             fixed_last=state["fixed_last"],
@@ -253,6 +281,7 @@ def route_view(state: dict) -> dict:
         "fixed_first": state.get("fixed_first"),
         "fixed_last": state.get("fixed_last"),
         "stopped_reason": state.get("stopped_reason"),
+        "missing_categories": state.get("missing_categories") or [],
         "steps": state["steps"],
         "waypoints": state.get("waypoints") or [],
         "route_geometry": state.get("route_geometry") or "",
