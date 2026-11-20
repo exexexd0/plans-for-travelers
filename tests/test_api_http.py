@@ -3,7 +3,7 @@
 import socket
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date
 
 import httpx
 import uvicorn
@@ -22,7 +22,7 @@ class FixtureGenerator:
             "description": "Маршрут для проверки",
             "days": [
                 {
-                    "date": request.start + timedelta(days=index),
+                    "date": request.start,
                     "title": f"День {index + 1}",
                     "summary": "Проверочное место",
                     "stops": [{"id": str(index), "name": "Место", "latitude": 57, "longitude": 40,
@@ -34,7 +34,7 @@ class FixtureGenerator:
         }
 
 
-def test_http_roundtrip_with_optional_prompt_and_seven_days():
+def test_http_roundtrip_with_optional_prompt_and_one_day():
     generator = FixtureGenerator()
     app = create_app(generator)
     with socket.socket() as sock:
@@ -51,14 +51,14 @@ def test_http_roundtrip_with_optional_prompt_and_seven_days():
             assert server.started, "HTTP-сервер не запустился"
             url = f"http://127.0.0.1:{port}/api/v1/trips/generate"
             start = date.today().isoformat()
-            request = {"city": "Иваново", "interests": ["food"], "days": 7, "start": start,
+            request = {"city": "Иваново", "interests": ["food"], "days": 1, "start": start,
                        "prompt": "Без спешки"}
             response = httpx.post(url, json=request, timeout=5)
             assert response.status_code == 200
             trip = response.json()
             assert generator.requests[-1].prompt == "Без спешки"
-            assert len(trip["days"]) == 7
-            assert trip["days"][-1]["date"] == (date.fromisoformat(start) + timedelta(days=6)).isoformat()
+            assert len(trip["days"]) == 1
+            assert trip["days"][-1]["date"] == start
             assert trip["image_url"] == trip["days"][0]["stops"][0]["image_url"]
             del request["prompt"]
             request["days"] = 1

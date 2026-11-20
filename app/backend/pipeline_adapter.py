@@ -1,28 +1,22 @@
-"""Временный адаптер однодневного пайплайна для API поездок."""
+"""Однодневный маршрут: собственный BM25 → выбор LLM → пеший OSRM."""
 
-import asyncio
-from datetime import timedelta
-from typing import Awaitable, Callable
+import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import HTTPException
 
+from app.backend.domain.models import SearchDocument
 from app.backend.api.schemas import DayRoute, LineString, RouteDay, Stop, TripRequest, TripResponse
-from app.pipeline.rag.graph import build_route_graph, initial_state, route_view, validate_route
-from app.pipeline.rag.jev import JevSelector
-from app.pipeline.rag.planner import LlmPlanner
+from app.backend.infrastructure.corpus.loader import load_places
+from app.backend.infrastructure.llm.client import LlmSelector
+from app.backend.infrastructure.search.bm25 import BM25Search
 from app.pipeline.rag.routing import OsrmRouter
-from app.pipeline.rag.settings import load_settings
-from app.pipeline.rag.store import available_categories, open_store
 
-# Эти названия соответствуют текущим подписям интересов во фронтенде.
 INTEREST_LABELS = {
-    "kids": "Прогулка с детьми",
-    "food": "Кафе и еда по пути",
-    "nature": "Природа и парки",
-    "buildings": "Красивые здания",
-    "art": "Выставки и галереи",
-    "active": "Активный отдых",
-    "unusual": "Необычные места",
+    "kids": "Прогулка с детьми", "food": "Кафе и еда по пути",
+    "nature": "Природа и парки", "buildings": "Красивые здания",
+    "art": "Выставки и галереи", "active": "Активный отдых", "unusual": "Необычные места",
 }
 
 
@@ -59,56 +53,58 @@ def decode_polyline(encoded: str) -> list[tuple[float, float]]:
     return coordinates
 
 
-async def run_pipeline(request: TripRequest) -> dict:
-    settings = load_settings()
-    if request.city.strip().casefold() != settings.city.strip().casefold():
-        raise HTTPException(status_code=422, detail="Для выбранного города нет данных.")
-    categories = await asyncio.to_thread(available_categories, settings)
-    store = await open_store(settings)
-    try:
-        graph = build_route_graph(LlmPlanner(settings), store, JevSelector(settings), router=OsrmRouter(settings.osrm_base_url))
-        state = await graph.ainvoke(initial_state(pipeline_query(request), settings.city, categories))
-        route = route_view(state)
-        validate_route(route)
-        return route
-    finally:
-        await store.close()
-
-
 class PipelineTripGenerator:
-    def __init__(self, run_day: Callable[[TripRequest], Awaitable[dict]] = run_pipeline):
-        self.run_day = run_day
+    def __init__(self, documents: list[SearchDocument], selector: LlmSelector, router: OsrmRouter):
+        self.index = BM25Search(documents, k1=1.2, b=0.75)
+        self.selector = selector
+        self.router = router
+        self.cities = {p.city.strip().casefold() for p in documents}
 
     async def generate(self, request: TripRequest) -> TripResponse:
-        result = await self.run_day(request)
-        if result.get("stopped_reason") or not result.get("waypoints"):
-            raise ValueError("Пайплайн не вернул места маршрута")
-        sources = {
-            place["org_id"]: place
-            for step in result.get("steps", [])
-            for place in (step.get("primary"), step.get("backup"))
-            if place and place.get("org_id")
-        }
-        points = result["waypoints"]
-        if any(not point.get("place_id") or point["place_id"] not in sources for point in points):
-            raise ValueError("Маршрут содержит неизвестное место")
-        if len({point["place_id"] for point in points}) != len(points):
-            raise ValueError("В одном дне есть повторяющиеся места")
-        stops = [Stop(id=str(point["place_id"]), name=point["name"],
-                      address=sources[point["place_id"]].get("address") or None,
-                      description=sources[point["place_id"]].get("type") or None, latitude=point["lat"], longitude=point["lon"],
-                      image_url=None) for point in points]
-        geometry = decode_polyline(result.get("route_geometry") or "")
-        route = DayRoute(geometry=LineString(coordinates=geometry)) if len(geometry) >= 2 else None
-        title = (result.get("route_title") or "").strip()
-        if not title:
-            raise ValueError("Пайплайн не вернул название маршрута")
-        summary = "Места: " + ", ".join(stop.name for stop in stops) + "."
-        days = [RouteDay(date=request.start + timedelta(days=index), title=title, summary=summary,
-                         image_url=None, stops=stops, route=route) for index in range(request.days)]
-        description = title if request.days == 1 else title + ". Маршрут первого дня повторяется в остальные дни."
-        return TripResponse(city=request.city, description=description, image_url=None, days=days)
+        if request.city.strip().casefold() not in self.cities:
+            raise HTTPException(status_code=422, detail="Для выбранного города нет данных.")
+        query = pipeline_query(request)
+        hits = self.index.search(query, city=request.city, limit=3)
+        places = {p.id: p for hit in hits for p in hit.place.places
+                  if p.lat is not None and p.lon is not None}
+        if not places:
+            raise HTTPException(status_code=422, detail="Подходящие места не найдены.")
+        selection = await self.selector.select(query, request.start, hits)
+        if len(selection.place_ids) != len(set(selection.place_ids)):
+            raise ValueError("LLM повторила место")
+        if any(id not in places for id in selection.place_ids):
+            raise ValueError("LLM выбрала неизвестное место")
+        chosen = [places[id] for id in selection.place_ids]
+        stops = [Stop(id=p.id, name=p.name, address=p.address, description=p.text,
+                      latitude=p.lat, longitude=p.lon) for p in chosen]
+        route = None
+        if len(chosen) > 1:
+            points = [{"org_id": p.id, "name": p.name, "lat": p.lat, "lon": p.lon,
+                       "category": p.category} for p in chosen]
+            routed = await self.router.route(points, "foot")
+            geometry = decode_polyline(routed.geometry)
+            if len(geometry) < 2:
+                raise RuntimeError("OSRM не вернул геометрию маршрута")
+            route = DayRoute(geometry=LineString(coordinates=geometry))
+        summary = "Места: " + ", ".join(p.name for p in chosen) + "."
+        if selection.insufficient_places:
+            summary += " Тестовый режим, мест пока не много"
+        day = RouteDay(date=request.start, title=selection.title, summary=summary,
+                       stops=stops, route=route)
+        return TripResponse(city=request.city, description=summary, days=[day])
 
 
 def create_pipeline_generator() -> PipelineTripGenerator:
-    return PipelineTripGenerator()
+    root = Path(__file__).resolve().parents[2]
+    load_dotenv(root / ".env")
+    corpus = Path(os.environ.get("CORPUS_PATH", "app/backend/data/ivanovo"))
+    if not corpus.is_absolute():
+        corpus = root / corpus
+    documents = load_places(corpus)
+    selector = LlmSelector(
+        api_key=os.environ.get("ROUTERAI_API_KEY", ""),
+        base_url=os.environ.get("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1"),
+        model=os.environ.get("CHAT_MODEL", "openai/gpt-4o-mini"),
+    )
+    return PipelineTripGenerator(documents, selector, OsrmRouter(
+        os.environ.get("OSRM_BASE_URL", "http://127.0.0.1:5000")))

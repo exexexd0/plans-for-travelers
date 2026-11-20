@@ -1,91 +1,61 @@
 # plans-for-travelers
 
-Учебный проект НИРС: маршрут по городу на 1–7 дней с учётом интересов.
-Цель — находить места собственным BM25 и составлять маршрут с помощью LLM.
+Однодневный пеший маршрут по Иванову: собственный BM25 → LLM → OSRM.
+Фронтенд — React + TypeScript, API — FastAPI.
 
-**Сейчас работает только интерфейс с демо-данными.**
+## Установка
 
-## Подготовка окружения
+Из корня проекта:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## Запуск пайплайна
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-docker compose -f app/pipeline/deploy/docker-compose.yml up -d
-```
-
-Compose поднимает Postgres и OSRM. Приложение само OSRM не запускает: `python -m rag route` ходит на `OSRM_BASE_URL`, по умолчанию `http://127.0.0.1:5000`. Сервис `osrm` слушает этот порт. Профили `car` и `foot` — два графа внутри compose, nginx раскладывает `/v1/car/` и `/v1/foot/` по ним. Первый запуск скачивает выгрузку Ивановской области и строит графы, это несколько минут.
-
-Четыре команды:
-
-python -m rag report
-python -m rag rebuild
-python -m rag route --query "Хочу поесть и зайти в торговый центр в Иваново"
-python -m rag archive
-report только фильтрует JSON и печатает статистику. База и нейросеть не вызываются, но переменные в .env всё равно должны существовать. Результат пишется в artifacts/runs/category_report.json.
-
-rebuild заново создаёт векторную таблицу: проверяет размерность эмбеддинга, включает расширение vector, стирает старую таблицу и заливает места пачками по BATCH_SIZE (8). Это платный вызов API эмбеддингов на каждое оставшееся место. Потом строится HNSW-индекс и проверка: число строк равно числу разных org_id, размерность 1024, нет пустых координат и категорий, в metadata нет текстов отзывов.
-
-route строит маршрут. Город можно переопределить: --city Иваново. Ответ печатается и сохраняется в artifacts/runs/route.json. Тот же сценарий есть в cycle_to_determine_POI.ipynb: там тоже нужно сначала сделать rebuild.
-
-archive упаковывает проект в artifacts/archive/ivanovo_rag_<дата>.zip и пишет artifacts/runs/manifest.json. Перед этим проверяет, что route.json валиден, и что строка вида sk-... не попала ни в один файл, кроме .env.
-
+В локальном `.env` заполните `ROUTERAI_API_KEY`. Настройки модели и URL —
+в шаблоне. Ключ в Git не добавляется. Корпус — 30 готовых JSON в
+`app/backend/data/ivanovo/`; индекс строится при старте API.
+PostgreSQL, pgvector и эмбеддинги для приложения не нужны.
 
 ## Запуск
 
-Нужен Node.js 20.19+ или 22.12+.
-
 ```bash
-cd app/frontend
-npm install
-npm run dev
-uvicorn app.backend.main:app --reload
-```
-
-Адрес: http://localhost:5173. Проверка типов и сборка: `npm run build`.
-
-## Документация
-
-- [Продукт](spec/product/product.md) и [сценарий](spec/product/scenarios.md).
-- [Архитектура](spec/tech/architecture.md) и [поиск / RAG](spec/tech/rag.md).
-- [Benchmark](benchmark/README.md), [тесты](tests/README.md), [дизайн](design/README.md).
-
-Сначала обновляем спецификацию, затем код и проверки.
-
-## Команда
-
-МГТУ им. Н. Э. Баумана, ИУ5-52Б. Распределение из документации проекта:
-
-| Зона | Кто |
-|---|---|
-| BM25, корпус, поиск, benchmark | Дарья Шпакова |
-| Интеграция интерфейса, поиска и LLM | Анна Опарина |
-| Продукт и интерфейс | Дарья и Анна |
-
-Это распределение обязанностей, а не перечень выполненных работ.
-
-## API поездки
-
-Из корня проекта после установки зависимостей:
-
-```bash
+docker compose -f app/pipeline/deploy/docker-compose.yml up -d
 .venv/bin/uvicorn app.backend.main:app --reload
 ```
 
-Фронтенд Vite перенаправляет `/api` на `127.0.0.1:8000`. Точка входа —
-`POST /api/v1/trips/generate`; формат описан в `spec/tech/api-contract.md`.
-По умолчанию API запускает существующий однодневный пайплайн и повторяет
-его маршрут на остальные даты. По разрешению пользователя до замены генератора
-используется существующий векторный индекс; это временное исключение из правил.
-Для генерации нужны подготовленный индекс, PostgreSQL, OSRM и настройки `.env`.
+Compose запускает OSRM; первый запуск скачивает карту Ивановской области и
+готовит дорожные графы. LLM выбирает порядок мест, OSRM строит пеший путь.
+В другом терминале запустите фронтенд (Node.js 20.19+ или 22.12+):
 
-Для подключения готового генератора укажите `TRIP_GENERATOR_FACTORY` в
-окружении процесса в формате `python.module:factory`. Фабрика вызывается без
-аргументов при запуске и возвращает объект с асинхронным методом
-`generate(request)`, принимающим `TripRequest` и возвращающим `TripResponse`.
-Эта настройка позволяет заменить временный адаптер совместимым генератором.
+```bash
+cd app/frontend
+npm ci
+npm run dev
+```
+
+Откройте http://localhost:5173. Запрос `/api` перенаправляется на порт 8000.
+Документация API: http://localhost:8000/docs. Без настроенной LLM или доступного
+OSRM генерация возвращает ошибку. Изображения пока заменяются заглушками интерфейса.
+
+## Проверки
+
+```bash
+.venv/bin/python -m pytest tests -q
+.venv/bin/python -m benchmark.run
+```
+
+Фронтенд: `cd app/frontend && npm run build`. Benchmark проверяет поиск без LLM.
+При HTTP-прокси добавьте localhost и 127.0.0.1 в NO_PROXY для HTTP-тестов.
+
+## Документация и работа
+
+[Продукт](spec/product/product.md), [API](spec/tech/api-contract.md),
+[архитектура](spec/tech/architecture.md), [BM25](spec/tech/rag.md),
+[benchmark](benchmark/README.md).
+
+Дарья: корпус, BM25 и benchmark. Анна: интерфейс и интеграция.
+Старые компоненты векторного пайплайна не используются API; их зависимости
+сохранены отдельно в `app/pipeline/requirements.txt`.

@@ -7,14 +7,14 @@ from app.backend.api.schemas import Stop, TripRequest
 
 
 def test_request_supports_optional_prompt():
-    data = {"city": "Иваново", "interests": ["food"], "days": 2, "start": "2026-12-01"}
+    data = {"city": "Иваново", "interests": ["food"], "days": 1, "start": "2026-12-01"}
     assert TripRequest(**data).prompt is None
     assert TripRequest(**data, prompt="Без спешки").prompt == "Без спешки"
     assert TripRequest(**data).start == date(2026, 12, 1)
 
 
 def test_request_rejects_unknown_interest_and_duration():
-    data = {"city": "Иваново", "interests": ["food"], "days": 2, "start": "2026-12-01"}
+    data = {"city": "Иваново", "interests": ["food"], "days": 1, "start": "2026-12-01"}
     with pytest.raises(ValidationError):
         TripRequest(**{**data, "interests": ["unknown"]})
     with pytest.raises(ValidationError):
@@ -50,7 +50,7 @@ def test_endpoint_passes_prompt_to_generator():
     assert response.status_code == 200
     assert seen[0].prompt == "Без спешки"
     assert response.json()["days"][0]["date"] == request["start"]
-    assert client.post("/api/v1/trips/generate", json={**request, "days": 2}).status_code == 502
+    assert client.post("/api/v1/trips/generate", json={**request, "days": 2}).status_code == 422
 
 
 def test_endpoint_without_generator_is_unavailable():

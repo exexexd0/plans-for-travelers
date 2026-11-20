@@ -4,7 +4,6 @@ import importlib
 import inspect
 import logging
 import os
-from datetime import timedelta
 from typing import Protocol
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -43,10 +42,8 @@ def create_app(generator: TripGenerator | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="Генерация маршрутов пока недоступна.")
         try:
             result = TripResponse.model_validate(await trip_generator.generate(data))
-            if len(result.days) != data.days or any(
-                day.date != data.start + timedelta(days=i) for i, day in enumerate(result.days)
-            ):
-                raise ValueError("Число или даты дней не соответствуют запросу")
+            if result.days[0].date != data.start:
+                raise ValueError("Дата маршрута не соответствует запросу")
             return result
         except HTTPException:
             raise

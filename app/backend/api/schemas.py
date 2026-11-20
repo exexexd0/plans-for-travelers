@@ -23,7 +23,7 @@ class TripRequest(BaseModel):
 
     city: str = Field(min_length=1)
     interests: list[Interest] = Field(min_length=1)
-    days: int = Field(ge=1, le=7, strict=True)
+    days: int = Field(ge=1, le=1, strict=True)
     start: date
     prompt: str | None = None
 
@@ -81,7 +81,7 @@ class TripResponse(BaseModel):
     city: str
     description: str
     image_url: ImageUrl | None = None
-    days: list[RouteDay]
+    days: list[RouteDay] = Field(min_length=1, max_length=1)
 
     @model_validator(mode="after")
     def cover_matches_a_day(self):

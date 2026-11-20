@@ -6,7 +6,7 @@ export type Step = 'city' | 'interests' | 'prompt' | 'duration' | 'review' | 'ge
 export interface Plan {
   city: string;
   interests: string[];
-  days: number;
+  days: 1;
   /** yyyy-mm-dd, local date */
   start: string;
   prompt?: string | null;
@@ -31,9 +31,9 @@ export const INTERESTS: Interest[] = [
   { id: 'unusual', label: 'Необычные места', icon: 'sparkles' },
 ];
 
-export const DURATIONS = [1, 2, 3, 4, 5, 6, 7];
+export const DURATIONS = [1];
 
-export const durationLabel = (days: number) => (days === 1 ? '1 день' : `до ${days} дней`);
+export const durationLabel = (_days: 1) => '1 день';
 
 // ---------- dates ----------
 
