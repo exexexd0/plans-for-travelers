@@ -44,6 +44,7 @@ archive упаковывает проект в artifacts/archive/ivanovo_rag_<д
 cd app/frontend
 npm install
 npm run dev
+uvicorn app.backend.main:app --reload
 ```
 
 Адрес: http://localhost:5173. Проверка типов и сборка: `npm run build`.

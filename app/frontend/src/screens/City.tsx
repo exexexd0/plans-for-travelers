@@ -1,4 +1,4 @@
-import { CITIES, type Plan } from '../state';
+import { AVAILABLE_CITIES, CITIES, type Plan } from '../state';
 import { Actions, Button, Chip, Heading, Icon, Screen, TopBar, img } from '../ui';
 
 interface Props {
@@ -12,7 +12,7 @@ const TRAIL = 'M66 214 C 110 190, 120 150, 170 150 S 250 170, 262 116 S 220 70, 
 
 export function City({ plan, onChange, onCancel, onNext }: Props) {
   const city = plan.city;
-  const ready = city.trim().length > 0;
+  const ready = AVAILABLE_CITIES.some((item) => item.toLowerCase() === city.trim().toLowerCase());
 
   return (
     <Screen bg="water">
@@ -64,7 +64,7 @@ export function City({ plan, onChange, onCancel, onNext }: Props) {
         </label>
         <div className="chips">
           {CITIES.map((c) => (
-            <Chip key={c} active={c === city} onClick={() => onChange({ city: c === city ? '' : c })}>
+            <Chip key={c} disabled={!AVAILABLE_CITIES.includes(c)} active={c === city} onClick={() => onChange({ city: c === city ? '' : c })}>
               {c}
             </Chip>
           ))}

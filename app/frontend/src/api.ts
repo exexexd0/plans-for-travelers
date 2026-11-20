@@ -3,6 +3,8 @@ import type { Plan } from './state';
 export interface ApiStop {
   id: string;
   name: string;
+  address?: string | null;
+  description?: string | null;
   image_url?: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -49,7 +51,8 @@ function isTrip(value: unknown, plan: Plan): value is ApiTrip {
     if (!day || day.date !== expected || typeof day.title !== 'string' || typeof day.summary !== 'string'
         || !validImage(day.image_url) || !Array.isArray(day.stops)) return false;
     if (!day.stops.every((stop) => stop && typeof stop.id === 'string' && !!stop.id
-      && typeof stop.name === 'string' && !!stop.name && validImage(stop.image_url)
+      && typeof stop.name === 'string' && !!stop.name && (stop.address == null || typeof stop.address === 'string')
+      && (stop.description == null || typeof stop.description === 'string') && validImage(stop.image_url)
       && ((stop.latitude === null && stop.longitude === null)
         || (typeof stop.latitude === 'number' && Number.isFinite(stop.latitude) && Math.abs(stop.latitude) <= 90
           && typeof stop.longitude === 'number' && Number.isFinite(stop.longitude) && Math.abs(stop.longitude) <= 180)))) return false;

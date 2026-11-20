@@ -13,6 +13,7 @@ PUBLIC_FIELDS = (
     "org_id",
     "name",
     "address",
+    "type",
     "lat",
     "lon",
     "rating",

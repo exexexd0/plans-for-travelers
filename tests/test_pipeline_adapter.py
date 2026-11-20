@@ -22,11 +22,11 @@ async def test_repeats_one_generated_day_and_preserves_waypoint_order():
         return {
             'route_title': 'Прогулка',
             'steps': [
-                {'primary': {'org_id': 'a'}, 'backup': None},
-                {'primary': {'org_id': 'b'}, 'backup': None},
+                {'primary': {'org_id': 'a', 'address': 'Адрес A', 'type': 'Музей'}, 'backup': None},
+                {'primary': {'org_id': 'b', 'address': 'Адрес B'}, 'backup': {'org_id': 'c', 'address': 'Адрес C', 'type': 'Парк'}},
             ],
             'waypoints': [
-                {'place_id': 'b', 'name': 'Второе место', 'lat': 57, 'lon': 40},
+                {'place_id': 'c', 'name': 'Запасное место', 'lat': 57, 'lon': 40},
                 {'place_id': 'a', 'name': 'Первое место', 'lat': 57.1, 'lon': 40.1},
             ],
             'route_geometry': '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
@@ -41,7 +41,9 @@ async def test_repeats_one_generated_day_and_preserves_waypoint_order():
     assert 'Без спешки' in pipeline_query(request)
     assert len(trip.days) == 7
     assert trip.days[-1].date == date(2100, 1, 4)
-    assert [stop.id for stop in trip.days[0].stops] == ['b', 'a']
+    assert [stop.id for stop in trip.days[0].stops] == ['c', 'a']
+    assert [stop.address for stop in trip.days[0].stops] == ['Адрес C', 'Адрес A']
+    assert [stop.description for stop in trip.days[0].stops] == ['Парк', 'Музей']
     assert all(day.stops == trip.days[0].stops and day.route == trip.days[0].route for day in trip.days)
     assert all(day.image_url is None for day in trip.days)
 
@@ -53,3 +55,9 @@ async def test_rejects_waypoint_absent_from_selected_candidates():
     request = TripRequest(city='Иваново', interests=['food'], days=1, start=date(2099, 1, 1))
     with pytest.raises(ValueError, match='неизвестное место'):
         await PipelineTripGenerator(run_day).generate(request)
+
+
+def test_public_place_retains_original_type():
+    from app.pipeline.rag.graph import public_place
+
+    assert public_place({"org_id": "1", "type": "Торговый центр"})["type"] == "Торговый центр"

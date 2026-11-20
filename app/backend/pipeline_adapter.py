@@ -84,7 +84,7 @@ class PipelineTripGenerator:
         if result.get("stopped_reason") or not result.get("waypoints"):
             raise ValueError("Пайплайн не вернул места маршрута")
         sources = {
-            place["org_id"]
+            place["org_id"]: place
             for step in result.get("steps", [])
             for place in (step.get("primary"), step.get("backup"))
             if place and place.get("org_id")
@@ -94,8 +94,10 @@ class PipelineTripGenerator:
             raise ValueError("Маршрут содержит неизвестное место")
         if len({point["place_id"] for point in points}) != len(points):
             raise ValueError("В одном дне есть повторяющиеся места")
-        stops = [Stop(id=str(point["place_id"]), name=point["name"], latitude=point["lat"],
-                      longitude=point["lon"], image_url=None) for point in points]
+        stops = [Stop(id=str(point["place_id"]), name=point["name"],
+                      address=sources[point["place_id"]].get("address") or None,
+                      description=sources[point["place_id"]].get("type") or None, latitude=point["lat"], longitude=point["lon"],
+                      image_url=None) for point in points]
         geometry = decode_polyline(result.get("route_geometry") or "")
         route = DayRoute(geometry=LineString(coordinates=geometry)) if len(geometry) >= 2 else None
         title = (result.get("route_title") or "").strip()

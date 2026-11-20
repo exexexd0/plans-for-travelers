@@ -74,7 +74,7 @@ class PlaceStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
-                    SELECT org_id, name, address, category, lat, lon, rating
+                    SELECT org_id, name, address, type, category, lat, lon, rating
                     FROM {table}
                     WHERE city = %s AND lat IS NOT NULL AND lon IS NOT NULL
                     ORDER BY rating DESC NULLS LAST, org_id
@@ -84,7 +84,7 @@ class PlaceStore:
                 rows = cursor.fetchall()
         selected = []
         seen_categories: set[str] = set()
-        for org_id, name, address, category, lat, lon, rating in rows:
+        for org_id, name, address, place_type, category, lat, lon, rating in rows:
             if category not in CANONICAL_CATEGORIES or category in seen_categories:
                 continue
             selected.append(
@@ -92,6 +92,7 @@ class PlaceStore:
                     "org_id": org_id,
                     "name": name,
                     "address": address,
+                    "type": place_type,
                     "category": category,
                     "city": city,
                     "lat": lat,

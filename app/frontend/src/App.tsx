@@ -2,20 +2,22 @@ import { useEffect, useState } from 'react';
 import { buildRoute, todayISO, type Plan, type Step, type Trip as TripData } from './state';
 import { City } from './screens/City';
 import { Interests } from './screens/Interests';
+import { Prompt } from './screens/Prompt';
 import { Duration } from './screens/Duration';
 import { Review } from './screens/Review';
 import { Generating } from './screens/Generating';
 import { Trip } from './screens/Trip';
 import { Route } from './screens/Route';
 
-const emptyPlan = (): Plan => ({ city: '', interests: [], days: 2, start: todayISO() });
+const emptyPlan = (): Plan => ({ city: '', interests: [], days: 1, start: todayISO() });
 
 export function App() {
   const [step, setStep] = useState<Step>('city');
   const [plan, setPlan] = useState<Plan>(emptyPlan);
-  const [day, setDay] = useState(0);
+  const [place, setPlace] = useState(0);
   const [trip, setTrip] = useState<TripData | null>(null);
   const [error, setError] = useState('');
+  const [editingPrompt, setEditingPrompt] = useState(false);
 
   useEffect(() => {
     if (step !== 'generating') return;
@@ -43,6 +45,7 @@ export function App() {
   const patch = (p: Partial<Plan>) => setPlan((prev) => ({ ...prev, ...p }));
   const reset = () => {
     setTrip(null);
+    setEditingPrompt(false);
     setPlan(emptyPlan());
     setStep('city');
   };
@@ -53,13 +56,16 @@ export function App() {
       screen = <City plan={plan} onChange={patch} onCancel={reset} onNext={() => setStep('interests')} />;
       break;
     case 'interests':
-      screen = <Interests plan={plan} onChange={patch} onCancel={reset} onBack={() => setStep('city')} onNext={() => setStep('duration')} />;
+      screen = <Interests plan={plan} onChange={patch} onCancel={reset} onBack={() => setStep('city')} onNext={() => { setEditingPrompt(false); setStep('prompt'); }} />;
+      break;
+    case 'prompt':
+      screen = <Prompt initialPrompt={plan.prompt} onCancel={reset} onBack={() => setStep(editingPrompt ? 'review' : 'interests')} onNext={(prompt) => { patch({ prompt }); setStep(editingPrompt ? 'review' : 'duration'); setEditingPrompt(false); }} />;
       break;
     case 'duration':
-      screen = <Duration plan={plan} onChange={patch} onCancel={reset} onBack={() => setStep('interests')} onNext={() => setStep('review')} />;
+      screen = <Duration plan={plan} onChange={patch} onCancel={reset} onBack={() => { setEditingPrompt(false); setStep('prompt'); }} onNext={() => setStep('review')} />;
       break;
     case 'review':
-      screen = <Review plan={plan} onCancel={reset} onEdit={setStep} onBack={() => setStep('duration')} onNext={() => setStep('generating')} />;
+      screen = <Review plan={plan} onCancel={reset} onEdit={(target) => { setEditingPrompt(target === 'prompt'); setStep(target); }} onBack={() => setStep('duration')} onNext={() => setStep('generating')} />;
       break;
     case 'generating':
       screen = <Generating error={error} onBack={() => setStep('review')} />;
@@ -69,16 +75,17 @@ export function App() {
         <Trip
           plan={plan}
           trip={trip!}
+          onReset={reset}
           onBack={() => setStep('review')}
-          onOpenDay={(i) => {
-            setDay(i);
+          onOpenPlace={(i) => {
+            setPlace(i);
             setStep('route');
           }}
         />
       );
       break;
     case 'route':
-      screen = <Route route={trip!.days} initial={day} fallback={plan.interests[0]} onBack={() => setStep('trip')} />;
+      screen = <Route day={trip!.days[0]} placeIndex={place} fallback={plan.interests[0]} onBack={() => setStep('trip')} />;
       break;
   }
 

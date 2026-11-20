@@ -37,6 +37,8 @@ class TripRequest(BaseModel):
 class Stop(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    address: str | None = None
+    description: str | None = None
     image_url: ImageUrl | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)

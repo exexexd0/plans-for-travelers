@@ -1,7 +1,7 @@
 import type { IconName } from './ui';
 import { requestTrip, type ApiTrip } from './api';
 
-export type Step = 'city' | 'interests' | 'duration' | 'review' | 'generating' | 'trip' | 'route';
+export type Step = 'city' | 'interests' | 'prompt' | 'duration' | 'review' | 'generating' | 'trip' | 'route';
 
 export interface Plan {
   city: string;
@@ -18,7 +18,8 @@ export interface Interest {
   icon: IconName;
 }
 
-export const CITIES = ['Калининград', 'Казань', 'Сочи', 'Санкт-Петербург', 'Москва'];
+export const CITIES = ['Иваново', 'Москва', 'Калининград', 'Казань', 'Сочи', 'Санкт-Петербург'];
+export const AVAILABLE_CITIES = CITIES.slice(0, 2);
 
 export const INTERESTS: Interest[] = [
   { id: 'kids', label: 'Прогулка с детьми', icon: 'kids' },
@@ -101,6 +102,8 @@ export interface Stop {
   id: string;
   name: string;
   photo: string | null;
+  address: string | null;
+  description: string | null;
   latitude: number | null;
   longitude: number | null;
 }
@@ -134,7 +137,7 @@ export async function buildRoute(plan: Plan, signal?: AbortSignal): Promise<Trip
       cover: day.image_url ?? null,
       geometry: day.route?.geometry.coordinates ?? null,
       stops: day.stops.map((stop) => ({
-        id: stop.id, name: stop.name, photo: stop.image_url ?? null,
+        id: stop.id, name: stop.name, photo: stop.image_url ?? null, address: stop.address ?? null, description: stop.description ?? null,
         latitude: stop.latitude, longitude: stop.longitude,
       })),
     })),

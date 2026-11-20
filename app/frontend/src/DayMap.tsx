@@ -4,10 +4,11 @@ import 'leaflet/dist/leaflet.css';
 import type { RouteDay } from './state';
 
 /** Интерактивная карта выбранного дня с сохранением порядка мест из списка. */
-export function DayMap({ day }: { day: RouteDay; index: number }) {
+export function DayMap({ day, placeIndex }: { day: RouteDay; placeIndex?: number }) {
   const container = useRef<HTMLDivElement>(null);
-  const hasCoordinates = day.stops.some((stop) => stop.latitude !== null && stop.longitude !== null)
-    || Boolean(day.geometry?.length);
+  const hasCoordinates = day.stops.some((stop, index) => (placeIndex === undefined || index === placeIndex)
+    && stop.latitude !== null && stop.longitude !== null)
+    || (placeIndex === undefined && Boolean(day.geometry?.length));
 
   useEffect(() => {
     if (!container.current || !hasCoordinates) return;
@@ -20,7 +21,7 @@ export function DayMap({ day }: { day: RouteDay; index: number }) {
 
     const markerCoordinates: L.LatLngTuple[] = [];
     day.stops.forEach((stop, index) => {
-      if (stop.latitude === null || stop.longitude === null) return;
+      if ((placeIndex !== undefined && index !== placeIndex) || stop.latitude === null || stop.longitude === null) return;
       const position: L.LatLngTuple = [stop.latitude, stop.longitude];
       markerCoordinates.push(position);
       const icon = L.divIcon({
@@ -37,7 +38,7 @@ export function DayMap({ day }: { day: RouteDay; index: number }) {
     });
 
     // В GeoJSON сначала идёт долгота, а Leaflet ожидает сначала широту.
-    const route: L.LatLngTuple[] = (day.geometry ?? []).map(([lon, lat]) => [lat, lon]);
+    const route: L.LatLngTuple[] = (placeIndex === undefined ? day.geometry ?? [] : []).map(([lon, lat]) => [lat, lon]);
     if (route.length >= 2) {
       L.polyline(route, { color: '#0077ff', weight: 5, opacity: 0.8 }).addTo(map);
     } else if (markerCoordinates.length >= 2) {
@@ -60,8 +61,8 @@ export function DayMap({ day }: { day: RouteDay; index: number }) {
       observer.disconnect();
       map.remove();
     };
-  }, [day, hasCoordinates]);
+  }, [day, hasCoordinates, placeIndex]);
 
   if (!hasCoordinates) return <div className="map map--empty glass" role="status">Карта маршрута пока недоступна</div>;
-  return <div className="map" ref={container} aria-label="Карта маршрута дня" />;
+  return <div className="map" ref={container} aria-label={placeIndex === undefined ? "Карта маршрута" : "Карта места"} />;
 }
