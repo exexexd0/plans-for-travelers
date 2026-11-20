@@ -35,9 +35,13 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class PlaceStore:
-    def __init__(self, settings: Settings, vector_store: PGVectorStore):
+    def __init__(self, settings: Settings, vector_store: PGVectorStore, engine: PGEngine):
         self.settings = settings
         self.vector_store = vector_store
+        self.engine = engine
+
+    async def close(self) -> None:
+        await self.engine.close()
 
     async def search(
         self,
@@ -139,15 +143,19 @@ async def rebuild_index(settings: Settings, places: list[Place]) -> dict:
 async def open_store(settings: Settings) -> PlaceStore:
     embeddings = build_embeddings(settings)
     engine = PGEngine.from_connection_string(settings.database_url)
-    store = await PGVectorStore.create(
-        engine=engine,
-        embedding_service=embeddings,
-        table_name=settings.vector_table,
-        metadata_columns=METADATA_COLUMN_NAMES,
-        metadata_json_column="langchain_metadata",
-        id_column="langchain_id",
-    )
-    return PlaceStore(settings, store)
+    try:
+        store = await PGVectorStore.create(
+            engine=engine,
+            embedding_service=embeddings,
+            table_name=settings.vector_table,
+            metadata_columns=METADATA_COLUMN_NAMES,
+            metadata_json_column="langchain_metadata",
+            id_column="langchain_id",
+        )
+    except BaseException:
+        await engine.close()
+        raise
+    return PlaceStore(settings, store, engine)
 
 
 def verify_index(settings: Settings) -> dict:

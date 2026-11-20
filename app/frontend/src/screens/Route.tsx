@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { DayMap } from '../DayMap';
 import { formatDayLong, plural, type RouteDay } from '../state';
-import { Chip, RoundButton, Screen, img } from '../ui';
+import { Chip, RoundButton, Screen, Photo } from '../ui';
 
-export function Route({ route, initial = 0, onBack }: { route: RouteDay[]; initial?: number; onBack: () => void }) {
+export function Route({ route, initial = 0, fallback, onBack }: { route: RouteDay[]; initial?: number; fallback: string; onBack: () => void }) {
   const [index, setIndex] = useState(Math.min(initial, route.length - 1));
   const day = route[index];
   const places = day.stops.length;
@@ -26,9 +26,9 @@ export function Route({ route, initial = 0, onBack }: { route: RouteDay[]; initi
       )}
 
       <section className="guide glass">
-        <div className="photo guide__photo" style={{ backgroundImage: `url(${img(day.cover)})` }}>
+        <Photo className="photo guide__photo" url={day.cover} fallback={fallback}>
           <span className="tag">День {index + 1}</span>
-        </div>
+        </Photo>
         <div className="guide__text">
           <small>
             {formatDayLong(day.date)} · {places} {plural(places, 'место', 'места', 'мест')}
@@ -44,7 +44,7 @@ export function Route({ route, initial = 0, onBack }: { route: RouteDay[]; initi
           <li key={`${index}-${i}`} className="trail__item">
             <span className="trail__mark">{i + 1}</span>
             <div className="stop glass">
-              <span className="photo stop__thumb" style={{ backgroundImage: `url(${img(stop.photo)})` }} />
+              <Photo className="photo stop__thumb" url={stop.photo} fallback={fallback} />
               <strong>{stop.name}</strong>
             </div>
           </li>

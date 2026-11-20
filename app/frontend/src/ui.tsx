@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 // ---------- icons ----------
@@ -156,4 +157,25 @@ export function RoundButton({ icon, label, size = 44, ...rest }: { icon: IconNam
 
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="actions">{children}</div>;
+}
+
+/** Фон с локальной заглушкой, в том числе при ошибке загрузки внешней картинки. */
+export function Photo({ url, fallback, className, children }: {
+  url: string | null; fallback: string; className: string; children?: ReactNode;
+}) {
+  const [loaded, setLoaded] = useState<string | null>(null);
+  useEffect(() => {
+    setLoaded(null);
+    if (!url) return;
+    const image = new Image();
+    image.onload = () => setLoaded(url);
+    image.onerror = () => setLoaded(null);
+    image.src = url;
+    return () => { image.onload = null; image.onerror = null; };
+  }, [url]);
+  const defaults: Record<string, string> = {
+    food: 'food', kids: 'kids', art: 'art', unusual: 'unusual', buildings: 'beautiful-places',
+  };
+  const local = `${import.meta.env.BASE_URL}img/fallbacks/${defaults[fallback] ?? 'unusual'}.jpg`;
+  return <div className={className} style={{ backgroundImage: `url("${loaded === url && loaded ? loaded : local}")` }}>{children}</div>;
 }

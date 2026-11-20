@@ -1,18 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button, Screen } from '../ui';
 
 const FULL = 'M50 520 C 130 500, 70 420, 150 400 S 290 420, 300 330 S 170 270, 196 200 S 290 160, 330 116';
 const DONE = 'M50 520 C 130 500, 70 420, 150 400 S 290 420, 300 330';
-const GENERATION_MS = 4200;
-
-export function Generating({ onDone }: { onDone: () => void }) {
+export function Generating({ error, onBack }: { error: string; onBack: () => void }) {
   const [note, setNote] = useState('');
-
-  useEffect(() => {
-    const t = window.setTimeout(onDone, GENERATION_MS);
-    return () => window.clearTimeout(t);
-  }, [onDone]);
-
   const share = async () => {
     const data = { title: 'VK Места', text: 'Собираю маршрут в VK Места — присоединяйся', url: window.location.href };
     try {
@@ -52,9 +44,9 @@ export function Generating({ onDone }: { onDone: () => void }) {
 
       <div className="grow" />
       <div className="message glass" role="status" aria-live="polite">
-        <h1>Секундочку...</h1>
-        <p>Маршрут почти готов. Это отличный повод рассказать о нас друзьям, чтобы открывать новые места вместе</p>
-        <Button onClick={share}>{note || 'Рекомендовать VK Места'}</Button>
+        <h1>{error ? 'Не удалось построить маршрут' : 'Секундочку...'}</h1>
+        <p>{error || 'Маршрут почти готов. Это отличный повод рассказать о нас друзьям, чтобы открывать новые места вместе'}</p>
+        {error ? <Button onClick={onBack}>Назад</Button> : <Button onClick={share}>{note || 'Рекомендовать VK Места'}</Button>}
       </div>
     </Screen>
   );
