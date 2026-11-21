@@ -52,6 +52,9 @@ export function Review({ plan, onCancel, onEdit, onBack, onNext }: Props) {
             ))}
           </ul>
         </Card>
+        <Card label="Пожелания к маршруту" onEdit={() => onEdit('prompt')}>
+          <p className="review__prompt">{plan.prompt || 'Не добавлены'}</p>
+        </Card>
         <Card label="Даты" onEdit={() => onEdit('duration')}>
           <h2>{formatRange(plan.start, plan.days)}</h2>
         </Card>

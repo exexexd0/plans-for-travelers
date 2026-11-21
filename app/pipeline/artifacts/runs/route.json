@@ -1,0 +1,132 @@
+{
+  "route_title": "Маршрут по рейтингу",
+  "city": "Иваново",
+  "user_query": "Хочу поесть и зайти в торговый центр в Иваново",
+  "transport_mode": "walk",
+  "required_points": [
+    "food",
+    "culture",
+    "mall",
+    "entertainment"
+  ],
+  "precedence": [],
+  "fixed_first": null,
+  "fixed_last": null,
+  "stopped_reason": null,
+  "steps": [
+    {
+      "order": 1,
+      "category": "food",
+      "selection_source": "rules",
+      "primary": {
+        "org_id": "101601401068",
+        "name": "Koferoom",
+        "address": "ул. Красной Армии, 16",
+        "lat": 56.994082,
+        "lon": 40.975276,
+        "rating": 5.0,
+        "category": "food",
+        "confidence": 0,
+        "avg_visit_duration_min": null,
+        "order": 1
+      },
+      "backup": null
+    },
+    {
+      "order": 2,
+      "category": "culture",
+      "selection_source": "rules",
+      "primary": {
+        "org_id": "1035228299",
+        "name": "Театр кукол",
+        "address": "Ивановский областной театр кукол, театр, площадь Пушкина, 2, Иваново",
+        "lat": 56.999902,
+        "lon": 40.976252,
+        "rating": 5.0,
+        "category": "culture",
+        "confidence": 0,
+        "avg_visit_duration_min": null,
+        "order": 2
+      },
+      "backup": null
+    },
+    {
+      "order": 3,
+      "category": "mall",
+      "selection_source": "rules",
+      "primary": {
+        "org_id": "1050842144",
+        "name": "Тополь",
+        "address": "Улица Постышева3-я городская больницаКинотеатр ЛодзьПоказать парковкиОсобенностиТорговый центрРазвлекательный центрПарковкаОплата картойТуалет для людей с инвалидностьюАвтоматическая дверьПарковка для людей с инвалидностьюКнопка вызова персоналаЛифтПандусДоступность входа на инвалидной коляске",
+        "lat": 56.983528,
+        "lon": 40.982421,
+        "rating": 5.0,
+        "category": "mall",
+        "confidence": 0,
+        "avg_visit_duration_min": null,
+        "order": 3
+      },
+      "backup": null
+    },
+    {
+      "order": 4,
+      "category": "entertainment",
+      "selection_source": "rules",
+      "primary": {
+        "org_id": "11153501337",
+        "name": "Ивановский цирк",
+        "address": "проспект Ленина, 42",
+        "lat": 57.003302,
+        "lon": 40.974936,
+        "rating": 5.0,
+        "category": "entertainment",
+        "confidence": 0,
+        "avg_visit_duration_min": null,
+        "order": 4
+      },
+      "backup": null
+    }
+  ],
+  "waypoints": [
+    {
+      "order": 1,
+      "place_id": "11153501337",
+      "name": "Ивановский цирк",
+      "lat": 57.003302,
+      "lon": 40.974936,
+      "category": "entertainment",
+      "suggested_time": "10:00"
+    },
+    {
+      "order": 2,
+      "place_id": "1035228299",
+      "name": "Театр кукол",
+      "lat": 56.999902,
+      "lon": 40.976252,
+      "category": "culture",
+      "suggested_time": "11:06"
+    },
+    {
+      "order": 3,
+      "place_id": "101601401068",
+      "name": "Koferoom",
+      "lat": 56.994082,
+      "lon": 40.975276,
+      "category": "food",
+      "suggested_time": "12:18"
+    },
+    {
+      "order": 4,
+      "place_id": "1050842144",
+      "name": "Тополь",
+      "lat": 56.983528,
+      "lon": 40.982421,
+      "category": "mall",
+      "suggested_time": "14:15"
+    }
+  ],
+  "route_geometry": "}n|zIsyayFj@dAl@MPa@NXHNl@z@H?bEUNAbCCP@H??U@{B?KAK?}C?cABDL]@EXs@r@qBDHAFSj@FJHUITGKRk@@GEI^cABWd@sAPZx@vADKJOJLn@cAhHoKPWDLl@tBFPLb@`@[DCXW|@uAzAlEVe@HTJXJZJMHAfAtCN^P`@t@jBn@~AFLHRDHDFDDfAjCZt@HSDKL@HE|@iBZs@Le@FQtAeDNo@RRLk@BMNu@FFh@gC`@^t@n@d@`@hAbAj@d@NHHQVNzAh@TH`@Nn@T|@\\XHl@RTHd@PFm@JCBAx@Mn@E~B}F\\MHeA|AwDM[LGHKJMHMLYx@}Bf@uAf@qA^cAJ[La@j@oCFHFKJM\\jAFLRVF?VFb@VZPTLhFrCdB|@?d@hAj@D_@BMb@R\\P^Pt@\\Lu@FwHaBKo@dGe@n@}@i@Am@{EkC",
+  "total_distance_meters": 3821,
+  "total_duration_minutes": 316,
+  "route_id": "13fa0da2-587c-40de-a93d-fe36d26f7026"
+}

@@ -1,13 +1,15 @@
 import type { IconName } from './ui';
+import { requestTrip, type ApiTrip } from './api';
 
-export type Step = 'city' | 'interests' | 'duration' | 'review' | 'generating' | 'trip' | 'route';
+export type Step = 'city' | 'interests' | 'prompt' | 'duration' | 'review' | 'generating' | 'trip' | 'route';
 
 export interface Plan {
   city: string;
   interests: string[];
-  days: number;
+  days: 1;
   /** yyyy-mm-dd, local date */
   start: string;
+  prompt?: string | null;
 }
 
 export interface Interest {
@@ -16,7 +18,8 @@ export interface Interest {
   icon: IconName;
 }
 
-export const CITIES = ['Калининград', 'Казань', 'Сочи', 'Санкт-Петербург', 'Москва'];
+export const CITIES = ['Иваново', 'Москва', 'Калининград', 'Казань', 'Сочи', 'Санкт-Петербург'];
+export const AVAILABLE_CITIES = CITIES.slice(0, 2);
 
 export const INTERESTS: Interest[] = [
   { id: 'kids', label: 'Прогулка с детьми', icon: 'kids' },
@@ -28,9 +31,9 @@ export const INTERESTS: Interest[] = [
   { id: 'unusual', label: 'Необычные места', icon: 'sparkles' },
 ];
 
-export const DURATIONS = [1, 2, 3, 4, 5, 6, 7];
+export const DURATIONS = [1];
 
-export const durationLabel = (days: number) => (days === 1 ? '1 день' : `до ${days} дней`);
+export const durationLabel = (_days: 1) => '1 день';
 
 // ---------- dates ----------
 
@@ -93,131 +96,50 @@ export function plural(n: number, one: string, few: string, many: string): strin
   return many;
 }
 
-// ---------- route (demo data, no backend yet) ----------
+// ---------- маршрут из API ----------
 
 export interface Stop {
+  id: string;
   name: string;
-  photo: string;
-}
-
-/** Готовая карта дня: картинка-подложка и разметка в её пикселях. */
-export interface DayMap {
-  image: string;
-  width: number;
-  height: number;
-  /** центры точек, по одной на каждое место дня, в том же порядке */
-  points: [number, number][];
-  /** линия маршрута, атрибут d для <path> */
-  path: string;
-  credit: string;
+  photo: string | null;
+  address: string | null;
+  description: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface RouteDay {
   date: Date;
   title: string;
-  /** краткий текст о местах дня для карточки на экране «Поездка» */
   summary: string;
-  cover: string;
+  cover: string | null;
   stops: Stop[];
-  /** нет — рисуется условная схема */
-  map?: DayMap;
+  geometry: [number, number][] | null;
 }
 
-const STOPS: Record<string, string[]> = {
-  kids: ['Детская площадка в парке', 'Контактный зоопарк', 'Музей занимательных наук'],
-  food: ['Кофейня у набережной', 'Рынок с местной едой', 'Ужин с видом на город'],
-  nature: ['Городской парк', 'Набережная', 'Ботанический сад', 'Озеро за городом'],
-  buildings: ['Исторический центр', 'Старые особняки', 'Главная площадь'],
-  art: ['Художественный музей', 'Галерея современного искусства'],
-  active: ['Велопрогулка вдоль реки', 'Тропа здоровья'],
-  unusual: ['Двор с муралами', 'Смотровая площадка на крыше'],
-};
-
-const DAY_TITLES = [
-  'Знакомство с городом',
-  'Тихие улицы и парки',
-  'За город, к воде',
-  'Маршрут без спешки',
-  'Местные любимые места',
-  'Длинная прогулка',
-  'Последний день: самое важное',
-];
-
-const PHOTOS = ['greenwater', 'water', 'grass', 'flowers', 'canopy', 'pinkgrass', 'lily'];
-const COVERS = ['sunforest', 'canopy', 'forestpath', 'field'];
-const STOPS_PER_DAY = 5;
-
-/**
- * Демонстрационный первый день для Иванова: реальные места в порядке с севера на юг.
- * Координаты точек и линия сняты с подложки OpenStreetMap (342×320).
- */
-const IVANOVO_DAY: Omit<RouteDay, 'date'> = {
-  title: 'Музеи и старый центр',
-  summary:
-    'Вы начнёте у конструктивистского Дома-корабля, посетите музей ивановского ситца и пройдётесь по старинной усадьбе Бурылина, выйдете на площадь Пушкина и закончите день у Щудровской палатки XVII века.',
-  cover: 'ivanovo-ship',
-  stops: [
-    { name: 'Дом-корабль', photo: 'ivanovo-ship' },
-    { name: 'Музей ивановского ситца', photo: 'ivanovo-calico' },
-    { name: 'Усадьба Бурылина', photo: 'ivanovo-burylin' },
-    { name: 'Площадь Пушкина', photo: 'ivanovo-pushkin' },
-    { name: 'Щудровская палатка', photo: 'ivanovo-shchudrov' },
-  ],
-  map: {
-    image: 'ivanovo-day1-map',
-    width: 342,
-    height: 320,
-    // музеи ситца и Бурылина стоят через дорогу — точки 2 и 3 немного раздвинуты
-    points: [[113, 34], [135, 149], [159, 166], [144, 218], [229, 286]],
-    path: 'M113 34L123 34L129 61L131 72L134 81L136 98L138 115L140 128L141 138L144 157L145 181L146 195L146 208L145 218L144 229L145 231L150 236L160 245L165 250L174 261L180 268L184 270L186 269L194 260L197 260L205 266L212 272L215 273L230 279L229 286',
-    credit: '© OpenStreetMap',
-  },
-};
-
-function daySummary(stops: Stop[]): string {
-  const names = [...new Set(stops.map((s) => s.name.charAt(0).toLowerCase() + s.name.slice(1)))];
-  return `В этот день: ${names.join(', ')}.`;
+export interface Trip {
+  city: string;
+  description: string;
+  cover: string | null;
+  days: RouteDay[];
 }
 
-/**
- * Собирает демонстрационный маршрут из выбранных интересов.
- * Реальной генерации пока нет: точки берутся по кругу из заготовок.
- * В каждом дне ровно STOPS_PER_DAY мест — столько же точек на карте дня.
- */
-export function buildRoute(plan: Plan): RouteDay[] {
-  const ids = plan.interests.length ? plan.interests : Object.keys(STOPS);
-  const cursor: Record<string, number> = {};
-  let photo = 0;
-  const days: RouteDay[] = [];
-
-  for (let d = 0; d < plan.days; d++) {
-    const date = addDays(plan.start, d);
-    if (d === 0 && plan.city.trim().toLowerCase() === 'иваново') {
-      days.push({ ...IVANOVO_DAY, date });
-      continue;
-    }
-    const stops: Stop[] = [];
-    for (let i = 0; i < STOPS_PER_DAY; i++) {
-      const id = ids[(d * STOPS_PER_DAY + i) % ids.length];
-      const pool = STOPS[id];
-      const at = cursor[id] ?? 0;
-      cursor[id] = at + 1;
-      stops.push({ name: pool[at % pool.length], photo: PHOTOS[photo++ % PHOTOS.length] });
-    }
-    days.push({
-      date,
-      title: DAY_TITLES[d % DAY_TITLES.length],
-      summary: daySummary(stops),
-      cover: COVERS[d % COVERS.length],
-      stops,
-    });
-  }
-  return days;
-}
-
-export function tripDescription(plan: Plan): string {
-  const labels = INTERESTS.filter((i) => plan.interests.includes(i.id)).map((i) => i.label.toLowerCase());
-  const days = `${plan.days} ${plural(plan.days, 'день', 'дня', 'дней')}`;
-  const what = labels.length ? labels.join(', ') : 'главные места города';
-  return `Маршрут на ${days}: ${what}. Собран так, чтобы всё успеть без спешки.`;
+export async function buildRoute(plan: Plan, signal?: AbortSignal): Promise<Trip> {
+  const response: ApiTrip = await requestTrip(plan, plan.prompt, signal);
+  return {
+    city: response.city,
+    description: response.description,
+    cover: response.image_url ?? null,
+    days: response.days.map((day) => ({
+      date: fromISO(day.date),
+      title: day.title,
+      summary: day.summary,
+      cover: day.image_url ?? null,
+      geometry: day.route?.geometry.coordinates ?? null,
+      stops: day.stops.map((stop) => ({
+        id: stop.id, name: stop.name, photo: stop.image_url ?? null, address: stop.address ?? null, description: stop.description ?? null,
+        latitude: stop.latitude, longitude: stop.longitude,
+      })),
+    })),
+  };
 }

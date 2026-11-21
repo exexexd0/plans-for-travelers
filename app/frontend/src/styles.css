@@ -836,12 +836,12 @@ button:focus-visible {
 }
 
 .trip__body {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 0 var(--pad);
+  padding: 0 var(--pad) 24px;
 }
 
 .trip__head {
@@ -911,44 +911,36 @@ button:focus-visible {
   box-shadow: 0 8px 24px rgba(47, 90, 70, 0.1);
 }
 
-.map img,
-.map svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+.map {
+  height: 320px;
+  z-index: 0;
+  background: #f3f1e4;
 }
 
-.map__num {
-  font: 600 12px 'Onest', system-ui, sans-serif;
-  fill: var(--accent);
-}
-
-.map__compass {
-  position: absolute;
-  right: 12px;
-  top: 12px;
+.map--empty {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  padding: 20px;
+  text-align: center;
+}
+
+.map__pin-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+.map__pin {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid white;
   border-radius: 50%;
-  background: var(--glass);
-  border: 1px solid var(--glass-stroke);
-  box-shadow: var(--glass-shadow);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
+  background: #0077ff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  color: white;
+  font: 600 12px/1 'Onest', system-ui, sans-serif;
 }
-
-.map__credit {
-  position: absolute;
-  right: 10px;
-  bottom: 6px;
-  font-size: 9px;
-  line-height: 12px;
-  color: var(--text-2);
-}
-
 /* ---------- route by days ---------- */
 
 .route__top {
@@ -1050,4 +1042,75 @@ button:focus-visible {
   .gen__point {
     opacity: 1;
   }
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+/* ---------- дополнительные пожелания ---------- */
+
+.prompt__field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  border-radius: 24px;
+}
+
+.prompt__field textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.prompt__field textarea::placeholder {
+  color: var(--text-2);
+  opacity: 1;
+}
+
+.prompt__field:focus-within {
+  border-color: var(--mint-stroke);
+}
+
+@media (pointer: coarse) {
+  .prompt__field textarea {
+    font-size: 16px;
+  }
+}
+
+.review__prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reset-dialog {
+  width: min(342px, calc(100vw - 48px));
+  padding: 24px 20px;
+  border: 1px solid var(--glass-stroke);
+  border-radius: 28px;
+  background: #f8faf4;
+  box-shadow: var(--glass-shadow);
+  color: var(--text);
+}
+
+.reset-dialog::backdrop {
+  background: rgba(31, 46, 39, 0.45);
+}
+
+.reset-dialog p {
+  margin: 12px 0 20px;
+  color: var(--text-2);
+}
+
+.reset-dialog .btn {
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 14px;
 }
