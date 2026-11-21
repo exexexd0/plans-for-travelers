@@ -1,6 +1,8 @@
 """BM25-кандидаты для каждой остановки маршрутного графа."""
 
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from app.backend.domain.models import SearchDocument
 from app.backend.infrastructure.search.bm25 import BM25Search
@@ -8,6 +10,20 @@ from app.backend.infrastructure.search.preprocessing import preprocess
 from app.pipeline.rag.categories import CATEGORY_LABELS, classify_rubric
 
 logger = logging.getLogger("uvicorn.error.bm25")
+
+# Отдельный список для каждого benchmark-запроса, включая его задачи LangGraph.
+_retrieval_trace: ContextVar[list | None] = ContextVar("bm25_retrieval_trace", default=None)
+
+
+@contextmanager
+def capture_retrievals():
+    records = []
+    token = _retrieval_trace.set(records)
+    try:
+        yield records
+    finally:
+        _retrieval_trace.reset(token)
+
 
 
 class BM25RouteRetriever:
@@ -31,10 +47,18 @@ class BM25RouteRetriever:
             categories = {document.category for document in self.documents
                           if classify_rubric(document.category)[0] == category}
             query = CATEGORY_LABELS[category]
+        query += " " + user_query
+        trace = _retrieval_trace.get()
+        record = {"category": category, "city": city, "query": query,
+                  "allowed_categories": sorted(categories), "limit": self.document_index.document_count, "documents": []}
+        if trace is not None:
+            trace.append(record)
         if not categories:
             return []
-        query += " " + user_query
-        hits = self.document_index.search(query, city=city, limit=3, categories=tuple(categories))
+        hits = self.document_index.search(query, city=city,
+                                          limit=self.document_index.document_count, categories=tuple(categories))
+        record["documents"] = [{"id": hit.place.id, "name": hit.place.name, "score": hit.score}
+                               for hit in hits]
         found_documents = {hit.place.id for hit in hits}
         logger.info("BM25 цель=%s документы=%s", category,
                     [(hit.place.id, round(hit.score, 4)) for hit in hits])

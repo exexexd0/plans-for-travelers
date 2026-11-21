@@ -10,25 +10,28 @@ API использует тот же BM25 для однодневного мар
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r app/backend/requirements.txt
-python -m unittest discover -s tests -v
+python -m unittest tests.search.test_bm25 -v
 python -m app.backend.infrastructure.search --corpus app/backend/data/ivanovo --query "музей" --city Иваново --limit 3
 ```
 
 Поиск использует готовые карточки Иванова. CLI печатает JSON с ID, текстами и баллами.
 Пример A/B/C из презентации проверяется в `tests/search/test_bm25.py`.
 
+Для всех проверок, включая API и интеграцию, установите зависимости из корневого
+`requirements.txt` и запустите `python -m pytest tests -q`.
+
 Для своего нормализованного корпуса передай его путь в `--corpus`.
 Дополнительно: `--city`, повторяемые `--category` и `--exclude-id`, `--k1`, `--b`.
 `--limit` задаётся явно; это не согласованное k итогового benchmark.
 
 - `domain/models.py`: Place, SearchDocument (подборка) и SearchHit.
-- `application/ports.py`: SearchPort — контракт для интеграции.
 - `infrastructure/search/bm25.py`: индекс и ранжирование.
 - `infrastructure/search/preprocessing.py`: общая обработка документов и запросов.
 - `infrastructure/corpus/loader.py`: чтение и проверка JSON.
 
 Формула, формат корпуса и ограничения: [rag.md](../../spec/tech/rag.md).
-Поисковый benchmark подготовлен; ответы LLM для benchmark пока не получены.
+Benchmark проверяет только BM25 и сохраняет выдачу и метрики в
+`benchmark/results/bm25.json` и `bm25.md`.
 
 ## Корпус и вопросы
 
@@ -39,11 +42,12 @@ python -m app.backend.infrastructure.search --corpus app/backend/data/ivanovo --
 
 Для запуска используются готовые 30 подборок; пересборка исходной выгрузки не нужна.
 
-## Поисковый benchmark
+## Benchmark BM25
 
 Из корня проекта, в активированной .venv: `python -m benchmark.run`.
-Он использует тот же BM25 без сервера и LLM; отчёт — в `benchmark/results/search.md`.
-Метрики поиска не заменяют проверку ответов модели.
+LLM и API не вызываются. Результаты — `benchmark/results/bm25.json` и `bm25.md`.
+По умолчанию оценивается вся выдача (k=30); `--k 3` ограничивает первую тройку.
+Recall@k и MRR@k считаются по обычным вопросам без фильтра по категориям.
 
 `pipeline_adapter.py` соединяет поэтапный маршрутный граф, BM25, JEV и OSRM.
 Для API нужен корневой requirements.txt. Векторная база не используется.
